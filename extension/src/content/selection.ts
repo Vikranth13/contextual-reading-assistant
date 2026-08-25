@@ -5,7 +5,7 @@ export interface SelectionData {
 }
 
 const WORD_PATTERN =
-    /^[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*$/u;
+    /^[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*$/u;
 
 function normalizeSelectedText(
     text: string
