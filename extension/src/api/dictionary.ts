@@ -3,37 +3,11 @@ import {
     type DictionaryResult,
 } from "../types/dictionary";
 
-interface RawPhonetic {
-    text?: string;
-    audio?: string;
-}
-
-interface RawDefinition {
-    definition?: string;
-}
-
-interface RawMeaning {
-    partOfSpeech?: string;
-
-    definitions?:
-        RawDefinition[];
-}
-
-interface RawDictionaryEntry {
-    word?: string;
-    phonetic?: string;
-
-    phonetics?:
-        RawPhonetic[];
-
-    meanings?:
-        RawMeaning[];
-}
-
 interface DictionaryServiceResponse {
     ok: boolean;
-    status?: number;
-    data?: unknown;
+
+    result?:
+        DictionaryResult;
 
     errorKind?:
         | "not_found"
@@ -42,129 +16,10 @@ interface DictionaryServiceResponse {
         | "invalid_response";
 
     message?: string;
-}
 
-function normalizeAudioUrl(
-    audioUrl:
-        string | undefined
-): string | undefined {
-
-    if (!audioUrl) {
-        return undefined;
-    }
-
-    if (
-        audioUrl.startsWith(
-            "//"
-        )
-    ) {
-        return `https:${audioUrl}`;
-    }
-
-    return audioUrl;
-}
-
-function findPhonetic(
-    entry: RawDictionaryEntry
-): string | undefined {
-
-    const phoneticWithText =
-        entry.phonetics?.find(
-            (phonetic) =>
-                Boolean(
-                    phonetic
-                        .text
-                        ?.trim()
-                )
-        );
-
-    return (
-        phoneticWithText
-            ?.text
-            ?.trim()
-
-        || entry
-            .phonetic
-            ?.trim()
-
-        || undefined
-    );
-}
-
-function findAudioUrl(
-    entry: RawDictionaryEntry
-): string | undefined {
-
-    const phoneticWithAudio =
-        entry.phonetics?.find(
-            (phonetic) =>
-                Boolean(
-                    phonetic
-                        .audio
-                        ?.trim()
-                )
-        );
-
-    return normalizeAudioUrl(
-        phoneticWithAudio
-            ?.audio
-            ?.trim()
-    );
-}
-
-function normalizeEntry(
-    entry: RawDictionaryEntry,
-    requestedWord: string
-): DictionaryResult {
-
-    const primaryMeaning =
-        entry.meanings?.find(
-            (meaning) =>
-                Boolean(
-                    meaning
-                        .definitions?.[0]
-                        ?.definition
-                )
-        );
-
-    const primaryDefinition =
-        primaryMeaning
-            ?.definitions?.[0]
-            ?.definition
-            ?.trim();
-
-    if (!primaryDefinition) {
-        throw new DictionaryLookupError(
-            "invalid_response",
-
-            "The dictionary response did not contain a usable definition."
-        );
-    }
-
-    return {
-        word:
-            entry.word?.trim()
-            || requestedWord,
-
-        definition:
-            primaryDefinition,
-
-        partOfSpeech:
-            primaryMeaning
-                ?.partOfSpeech
-                ?.trim()
-                || undefined,
-
-        phonetic:
-            findPhonetic(
-                entry
-            ),
-
-        audioUrl:
-            findAudioUrl(
-                entry
-            ),
-    };
+    provider?:
+        | "free_dictionary"
+        | "datamuse";
 }
 
 async function requestDictionaryEntry(
@@ -172,6 +27,7 @@ async function requestDictionaryEntry(
 ): Promise<DictionaryServiceResponse> {
 
     try {
+
         const response =
             await chrome.runtime
                 .sendMessage({
@@ -185,12 +41,43 @@ async function requestDictionaryEntry(
             DictionaryServiceResponse;
 
     } catch {
+
         throw new DictionaryLookupError(
             "network",
 
             "Unable to communicate with the extension service worker."
         );
     }
+}
+
+function isValidDictionaryResult(
+    result: unknown
+): result is DictionaryResult {
+
+    if (
+        typeof result !==
+            "object" ||
+        result === null
+    ) {
+        return false;
+    }
+
+    const candidate =
+        result as Partial<
+            DictionaryResult
+        >;
+
+    return (
+        typeof candidate.word ===
+            "string" &&
+        candidate.word.trim().length >
+            0 &&
+        typeof candidate.definition ===
+            "string" &&
+        candidate.definition.trim()
+            .length >
+            0
+    );
 }
 
 export async function lookupWord(
@@ -224,7 +111,8 @@ export async function lookupWord(
                 "not_found",
 
                 response.message
-                || `No dictionary definition was found for "${word}".`
+                ||
+                `No dictionary definition was found for "${word}".`
             );
         }
 
@@ -236,7 +124,8 @@ export async function lookupWord(
                 "server",
 
                 response.message
-                || "The dictionary service is temporarily unavailable."
+                ||
+                "The dictionary service is temporarily unavailable."
             );
         }
 
@@ -248,7 +137,8 @@ export async function lookupWord(
                 "invalid_response",
 
                 response.message
-                || "The dictionary service returned invalid data."
+                ||
+                "The dictionary service returned invalid data."
             );
         }
 
@@ -256,43 +146,27 @@ export async function lookupWord(
             "network",
 
             response.message
-            || "Unable to reach the dictionary service."
+            ||
+            "Unable to reach the dictionary service."
         );
     }
 
-        
-
     if (
-        response.status ===
-            undefined ||
-        response.status < 200 ||
-        response.status >= 300
-    ) {
-        throw new DictionaryLookupError(
-            "server",
-
-            "The dictionary service is temporarily unavailable."
-        );
-    }
-
-    const data =
-        response.data;
-
-    if (
-        !Array.isArray(data) ||
-        data.length === 0
+        !isValidDictionaryResult(
+            response.result
+        )
     ) {
         throw new DictionaryLookupError(
             "invalid_response",
 
-            "The dictionary service returned no entries."
+            "The dictionary service returned no usable definition."
         );
     }
 
-    return normalizeEntry(
-        data[0] as
-            RawDictionaryEntry,
-
-        word
+    console.log(
+        "[CRA] Dictionary provider:",
+        response.provider
     );
+
+    return response.result;
 }

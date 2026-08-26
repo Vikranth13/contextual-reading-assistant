@@ -1,12 +1,28 @@
+import type {
+    DictionaryResult,
+} from "../types/dictionary";
+
 console.log(
     "[CRA] Service worker loaded."
 );
 
-const DICTIONARY_BASE_URL =
+const FREE_DICTIONARY_BASE_URL =
     "https://api.dictionaryapi.dev/api/v2/entries/en";
 
-const DICTIONARY_TIMEOUT_MS =
-    2500;
+const DATAMUSE_BASE_URL =
+    "https://api.datamuse.com/words";
+
+const PRIMARY_TIMEOUT_MS =
+    1500;
+
+const FALLBACK_TIMEOUT_MS =
+    2000;
+
+type DictionaryErrorKind =
+    | "not_found"
+    | "network"
+    | "server"
+    | "invalid_response";
 
 interface DictionaryLookupMessage {
     type:
@@ -17,16 +33,18 @@ interface DictionaryLookupMessage {
 
 interface DictionaryServiceResponse {
     ok: boolean;
-    status?: number;
-    data?: unknown;
+
+    result?:
+        DictionaryResult;
 
     errorKind?:
-        | "not_found"
-        | "network"
-        | "server"
-        | "invalid_response";
+        DictionaryErrorKind;
 
     message?: string;
+
+    provider?:
+        "free_dictionary"
+        | "datamuse";
 }
 
 interface DictionaryErrorPayload {
@@ -34,6 +52,58 @@ interface DictionaryErrorPayload {
     message?: string;
     resolution?: string;
 }
+
+interface FreeDictionaryPhonetic {
+    text?: string;
+}
+
+interface FreeDictionaryDefinition {
+    definition?: string;
+}
+
+interface FreeDictionaryMeaning {
+    partOfSpeech?: string;
+
+    definitions?:
+        FreeDictionaryDefinition[];
+}
+
+interface FreeDictionaryEntry {
+    word?: string;
+    phonetic?: string;
+
+    phonetics?:
+        FreeDictionaryPhonetic[];
+
+    meanings?:
+        FreeDictionaryMeaning[];
+}
+
+interface DatamuseEntry {
+    word?: string;
+
+    defs?:
+        string[];
+
+    tags?:
+        string[];
+
+    defHeadword?: string;
+}
+
+type ProviderAttempt =
+    | {
+        kind: "success";
+        result: DictionaryResult;
+    }
+    | {
+        kind:
+            | "not_found"
+            | "network"
+            | "server"
+            | "invalid_response"
+            | "timeout";
+    };
 
 function isDictionaryLookupMessage(
     message: unknown
@@ -68,9 +138,60 @@ function parseJson(
     }
 
     try {
-        return JSON.parse(text);
+        return JSON.parse(
+            text
+        );
     } catch {
         return undefined;
+    }
+}
+
+async function fetchJsonWithTimeout(
+    url: string,
+    timeoutMs: number
+): Promise<{
+    response: Response;
+    data: unknown;
+}> {
+
+    const controller =
+        new AbortController();
+
+    const timeoutId =
+        setTimeout(
+            () => {
+                controller.abort();
+            },
+            timeoutMs
+        );
+
+    try {
+        const response =
+            await fetch(
+                url,
+                {
+                    signal:
+                        controller.signal,
+                }
+            );
+
+        const rawBody =
+            await response.text();
+
+        return {
+            response,
+
+            data:
+                parseJson(
+                    rawBody
+                ),
+        };
+
+    } finally {
+
+        clearTimeout(
+            timeoutId
+        );
     }
 }
 
@@ -115,149 +236,342 @@ function looksLikeNotFound(
     );
 }
 
-async function fetchDictionaryEntry(
+function normalizeFreeDictionary(
+    data: unknown,
+    requestedWord: string
+): DictionaryResult | null {
+
+    if (
+        !Array.isArray(data) ||
+        data.length === 0
+    ) {
+        return null;
+    }
+
+    const entry =
+        data[0] as
+            FreeDictionaryEntry;
+
+    const meaning =
+        entry.meanings?.find(
+            (candidate) =>
+                Boolean(
+                    candidate
+                        .definitions?.[0]
+                        ?.definition
+                        ?.trim()
+                )
+        );
+
+    const definition =
+        meaning
+            ?.definitions?.[0]
+            ?.definition
+            ?.trim();
+
+    if (!definition) {
+        return null;
+    }
+
+    const phonetic =
+        entry.phonetics?.find(
+            (candidate) =>
+                Boolean(
+                    candidate.text
+                        ?.trim()
+                )
+        )
+            ?.text
+            ?.trim()
+
+        || entry.phonetic
+            ?.trim()
+
+        || undefined;
+
+    return {
+        word:
+            entry.word?.trim()
+            || requestedWord,
+
+        definition,
+
+        partOfSpeech:
+            meaning
+                ?.partOfSpeech
+                ?.trim()
+                || undefined,
+
+        phonetic,
+
+        audioUrl:
+            undefined,
+    };
+}
+
+function mapPartOfSpeech(
+    value:
+        string | undefined
+): string | undefined {
+
+    switch (value) {
+
+        case "n":
+            return "noun";
+
+        case "v":
+            return "verb";
+
+        case "adj":
+            return "adjective";
+
+        case "adv":
+            return "adverb";
+
+        default:
+            return undefined;
+    }
+}
+
+function parseDatamuseDefinition(
+    rawDefinition: string
+): {
+    definition: string;
+    partOfSpeech?: string;
+} {
+
+    const separatorIndex =
+        rawDefinition.indexOf(
+            "\t"
+        );
+
+    if (
+        separatorIndex === -1
+    ) {
+        return {
+            definition:
+                rawDefinition.trim(),
+        };
+    }
+
+    const partOfSpeechCode =
+        rawDefinition
+            .slice(
+                0,
+                separatorIndex
+            )
+            .trim();
+
+    const definition =
+        rawDefinition
+            .slice(
+                separatorIndex + 1
+            )
+            .trim();
+
+    return {
+        definition,
+
+        partOfSpeech:
+            mapPartOfSpeech(
+                partOfSpeechCode
+            ),
+    };
+}
+
+function normalizeDatamuse(
+    data: unknown,
+    requestedWord: string
+): DictionaryResult | null {
+
+    if (!Array.isArray(data)) {
+        return null;
+    }
+
+    const normalizedRequestedWord =
+        requestedWord
+            .trim()
+            .toLowerCase();
+
+    const entry =
+        data.find(
+            (candidate) => {
+
+                if (
+                    typeof candidate !==
+                    "object" ||
+                    candidate === null
+                ) {
+                    return false;
+                }
+
+                const datamuseEntry =
+                    candidate as
+                        DatamuseEntry;
+
+                return (
+                    datamuseEntry.word
+                        ?.trim()
+                        .toLowerCase()
+                    ===
+                    normalizedRequestedWord
+                );
+            }
+        ) as
+            DatamuseEntry
+            | undefined;
+
+    if (
+        !entry ||
+        !entry.defs ||
+        entry.defs.length === 0
+    ) {
+        return null;
+    }
+
+    const rawDefinition =
+        entry.defs.find(
+            (definition) =>
+                Boolean(
+                    definition.trim()
+                )
+        );
+
+    if (!rawDefinition) {
+        return null;
+    }
+
+    const parsedDefinition =
+        parseDatamuseDefinition(
+            rawDefinition
+        );
+
+    if (
+        !parsedDefinition.definition
+    ) {
+        return null;
+    }
+
+    const tagPartOfSpeech =
+        entry.tags
+            ?.map(
+                mapPartOfSpeech
+            )
+            .find(Boolean);
+
+    const pronunciationTag =
+        entry.tags?.find(
+            (tag) =>
+                tag.startsWith(
+                    "pron:"
+                )
+        );
+
+    const phonetic =
+        pronunciationTag
+            ?.slice(
+                "pron:".length
+            )
+            .trim()
+            || undefined;
+
+    return {
+        word:
+            entry.word?.trim()
+            || requestedWord,
+
+        definition:
+            parsedDefinition.definition,
+
+        partOfSpeech:
+            tagPartOfSpeech
+            || parsedDefinition
+                .partOfSpeech,
+
+        phonetic,
+
+        audioUrl:
+            undefined,
+    };
+}
+
+async function tryFreeDictionary(
     word: string
-): Promise<DictionaryServiceResponse> {
+): Promise<ProviderAttempt> {
 
     const normalizedWord =
         word.trim().toLowerCase();
 
     const url =
-        `${DICTIONARY_BASE_URL}/${encodeURIComponent(
+        `${FREE_DICTIONARY_BASE_URL}/${encodeURIComponent(
             normalizedWord
         )}`;
 
-    const controller =
-        new AbortController();
-
-    const timeoutId =
-        setTimeout(
-            () => {
-                controller.abort();
-            },
-            DICTIONARY_TIMEOUT_MS
-        );
-
     try {
-        const response =
-            await fetch(
+
+        const {
+            response,
+            data,
+        } =
+            await fetchJsonWithTimeout(
                 url,
-                {
-                    signal:
-                        controller.signal,
-                }
-            );
-
-        const rawBody =
-            await response.text();
-
-        const data =
-            parseJson(
-                rawBody
+                PRIMARY_TIMEOUT_MS
             );
 
         console.log(
-            "[CRA] Dictionary response:",
+            "[CRA] Free Dictionary response:",
             {
                 word,
                 status:
                     response.status,
-                ok:
-                    response.ok,
             }
         );
 
-        /*
-         * Normal 404 behavior.
-         */
         if (
             response.status ===
-            404
-        ) {
-            return {
-                ok: false,
-
-                status: 404,
-
-                errorKind:
-                    "not_found",
-
-                message:
-                    `No dictionary definition was found for "${word}".`,
-            };
-        }
-
-        /*
-         * Some API responses may describe
-         * "No Definitions Found" even when
-         * the HTTP status is unexpected.
-         */
-        if (
+                404 ||
             looksLikeNotFound(
                 data
             )
         ) {
             return {
-                ok: false,
-
-                status:
-                    response.status,
-
-                errorKind:
+                kind:
                     "not_found",
-
-                message:
-                    `No dictionary definition was found for "${word}".`,
             };
         }
 
-        /*
-         * Other HTTP errors represent an
-         * actual service problem.
-         */
         if (!response.ok) {
             return {
-                ok: false,
-
-                status:
-                    response.status,
-
-                errorKind:
+                kind:
                     "server",
-
-                message:
-                    "The dictionary service is temporarily unavailable.",
             };
         }
 
-        /*
-         * Successful HTTP response but
-         * unusable JSON.
-         */
         if (
             data === undefined
         ) {
             return {
-                ok: false,
-
-                status:
-                    response.status,
-
-                errorKind:
+                kind:
                     "invalid_response",
+            };
+        }
 
-                message:
-                    "The dictionary service returned invalid data.",
+        const result =
+            normalizeFreeDictionary(
+                data,
+                word
+            );
+
+        if (!result) {
+            return {
+                kind:
+                    "invalid_response",
             };
         }
 
         return {
-            ok: true,
-
-            status:
-                response.status,
-
-            data,
+            kind: "success",
+            result,
         };
 
     } catch (error) {
@@ -269,26 +583,244 @@ async function fetchDictionaryEntry(
                 "AbortError"
         ) {
             console.warn(
-                "[CRA] Dictionary lookup timed out:",
+                "[CRA] Free Dictionary timed out:",
                 word
             );
 
             return {
-                ok: false,
-
-                errorKind:
-                    "network",
-
-                message:
-                    "No dictionary definition was found or dictionary lookup took too long. Please try again.",
+                kind:
+                    "timeout",
             };
         }
 
         console.error(
-            "[CRA] Dictionary request failed:",
+            "[CRA] Free Dictionary request failed:",
             error
         );
 
+        return {
+            kind:
+                "network",
+        };
+    }
+}
+
+async function tryDatamuse(
+    word: string
+): Promise<ProviderAttempt> {
+
+    const normalizedWord =
+        word.trim().toLowerCase();
+
+    const url =
+        new URL(
+            DATAMUSE_BASE_URL
+        );
+
+    url.searchParams.set(
+        "sp",
+        normalizedWord
+    );
+
+    url.searchParams.set(
+        "qe",
+        "sp"
+    );
+
+    url.searchParams.set(
+        "md",
+        "dpr"
+    );
+
+    url.searchParams.set(
+        "ipa",
+        "1"
+    );
+
+    url.searchParams.set(
+        "max",
+        "1"
+    );
+
+    try {
+
+        const {
+            response,
+            data,
+        } =
+            await fetchJsonWithTimeout(
+                url.toString(),
+                FALLBACK_TIMEOUT_MS
+            );
+
+        console.log(
+            "[CRA] Datamuse response:",
+            {
+                word,
+                status:
+                    response.status,
+            }
+        );
+
+        if (!response.ok) {
+            return {
+                kind:
+                    "server",
+            };
+        }
+
+        if (
+            data === undefined
+        ) {
+            return {
+                kind:
+                    "invalid_response",
+            };
+        }
+
+        const result =
+            normalizeDatamuse(
+                data,
+                word
+            );
+
+        if (!result) {
+            return {
+                kind:
+                    "not_found",
+            };
+        }
+
+        return {
+            kind:
+                "success",
+
+            result,
+        };
+
+    } catch (error) {
+
+        if (
+            error instanceof
+                DOMException &&
+            error.name ===
+                "AbortError"
+        ) {
+            console.warn(
+                "[CRA] Datamuse fallback timed out:",
+                word
+            );
+
+            return {
+                kind:
+                    "timeout",
+            };
+        }
+
+        console.error(
+            "[CRA] Datamuse request failed:",
+            error
+        );
+
+        return {
+            kind:
+                "network",
+        };
+    }
+}
+
+async function fetchDictionaryEntry(
+    word: string
+): Promise<DictionaryServiceResponse> {
+
+    /*
+     * Provider 1:
+     * richer dictionary result.
+     */
+    const primary =
+        await tryFreeDictionary(
+            word
+        );
+
+    if (
+        primary.kind ===
+        "success"
+    ) {
+        return {
+            ok: true,
+
+            result:
+                primary.result,
+
+            provider:
+                "free_dictionary",
+        };
+    }
+
+    console.log(
+        "[CRA] Trying Datamuse fallback:",
+        {
+            word,
+            primaryResult:
+                primary.kind,
+        }
+    );
+
+    /*
+     * Provider 2:
+     * faster fallback for words the
+     * primary service cannot resolve
+     * quickly or reliably.
+     */
+    const fallback =
+        await tryDatamuse(
+            word
+        );
+
+    if (
+        fallback.kind ===
+        "success"
+    ) {
+        return {
+            ok: true,
+
+            result:
+                fallback.result,
+
+            provider:
+                "datamuse",
+        };
+    }
+
+    /*
+     * If either provider confidently
+     * says the word doesn't exist and
+     * neither provider found a result,
+     * show a clean not-found message.
+     */
+    if (
+        primary.kind ===
+            "not_found" ||
+        fallback.kind ===
+            "not_found"
+    ) {
+        return {
+            ok: false,
+
+            errorKind:
+                "not_found",
+
+            message:
+                `No dictionary definition was found for "${word}".`,
+        };
+    }
+
+    if (
+        primary.kind ===
+            "timeout" ||
+        fallback.kind ===
+            "timeout"
+    ) {
         return {
             ok: false,
 
@@ -296,15 +828,19 @@ async function fetchDictionaryEntry(
                 "network",
 
             message:
-                "Unable to reach the dictionary service.",
+                "Dictionary lookup took too long. Please try again.",
         };
-
-    } finally {
-
-        clearTimeout(
-            timeoutId
-        );
     }
+
+    return {
+        ok: false,
+
+        errorKind:
+            "server",
+
+        message:
+            "The dictionary service is temporarily unavailable.",
+    };
 }
 
 chrome.runtime.onMessage.addListener(
@@ -358,6 +894,7 @@ chrome.runtime.onMessage.addListener(
 chrome.runtime.onInstalled
     .addListener(
         () => {
+
             console.log(
                 "[CRA] Contextual Reading Assistant installed or updated."
             );
