@@ -1,17 +1,26 @@
-import { defineManifest } from "@crxjs/vite-plugin";
+import {
+    defineManifest,
+} from "@crxjs/vite-plugin";
 
 export default defineManifest({
     manifest_version: 3,
 
-    name: "Contextual Reading Assistant",
+    name:
+        "Contextual Reading Assistant",
 
     version: "0.1.0",
 
     description:
         "Understand unfamiliar words without leaving what you are reading.",
 
+    host_permissions: [
+        "https://api.dictionaryapi.dev/*",
+    ],
+
     background: {
-        service_worker: "src/background/serviceWorker.ts",
+        service_worker:
+            "src/background/serviceWorker.ts",
+
         type: "module",
     },
 
@@ -26,7 +35,8 @@ export default defineManifest({
                 "src/content/main.ts",
             ],
 
-            run_at: "document_idle",
+            run_at:
+                "document_idle",
         },
     ],
 });

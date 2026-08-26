@@ -4,10 +4,24 @@ import {
 } from "react-dom/client";
 
 import {
+    lookupWord,
+} from "../api/dictionary";
+
+import {
+    DefinitionPopup,
+    type DefinitionPopupState,
+} from "../components/DefinitionPopup";
+
+import {
     SelectionTrigger,
 } from "../components/SelectionTrigger";
 
 import {
+    DictionaryLookupError,
+} from "../types/dictionary";
+
+import {
+    calculatePopupPosition,
     calculateTriggerPosition,
 } from "./popupPosition";
 
@@ -24,8 +38,8 @@ console.log(
     "[CRA] Content script loaded."
 );
 
-const TRIGGER_HOST_ID =
-    "cra-selection-trigger-host";
+const OVERLAY_HOST_ID =
+    "cra-reading-assistant-overlay";
 
 let selectionTimer:
     number | undefined;
@@ -37,105 +51,284 @@ let currentSelection:
 
 let currentSentence = "";
 
-let triggerHost:
+let currentPopupState:
+    DefinitionPopupState = {
+        status: "loading",
+    };
+
+let overlayHost:
     HTMLElement | null = null;
 
-let triggerRoot:
+let overlayRoot:
     Root | null = null;
 
-function getOrCreateTriggerRoot(): Root {
-    if (triggerRoot) {
-        return triggerRoot;
+let activeLookupRequest = 0;
+
+function getOrCreateOverlayRoot():
+    Root {
+
+    if (overlayRoot) {
+        return overlayRoot;
     }
 
-    triggerHost =
+    overlayHost =
         document.createElement(
             "cra-reading-assistant-root"
         );
 
-    triggerHost.id =
-        TRIGGER_HOST_ID;
+    overlayHost.id =
+        OVERLAY_HOST_ID;
 
-    triggerHost.style.setProperty(
+    overlayHost.style.setProperty(
         "position",
         "fixed",
         "important"
     );
 
-    triggerHost.style.setProperty(
+    overlayHost.style.setProperty(
         "top",
         "0",
         "important"
     );
 
-    triggerHost.style.setProperty(
+    overlayHost.style.setProperty(
         "left",
         "0",
         "important"
     );
 
-    triggerHost.style.setProperty(
+    overlayHost.style.setProperty(
         "z-index",
         "2147483647",
         "important"
     );
 
     const shadowRoot =
-        triggerHost.attachShadow({
+        overlayHost.attachShadow({
             mode: "open",
         });
 
     const mountPoint =
-        document.createElement("div");
+        document.createElement(
+            "div"
+        );
 
     shadowRoot.appendChild(
         mountPoint
     );
 
-    document.documentElement.appendChild(
-        triggerHost
-    );
+    document.documentElement
+        .appendChild(
+            overlayHost
+        );
 
-    triggerRoot =
-        createRoot(mountPoint);
+    overlayRoot =
+        createRoot(
+            mountPoint
+        );
 
-    return triggerRoot;
+    return overlayRoot;
 }
 
-function hideTrigger(): void {
-    if (triggerRoot) {
-        triggerRoot.render(null);
+function hideOverlay(): void {
+
+    if (overlayRoot) {
+        overlayRoot.render(
+            null
+        );
     }
+
+    /*
+     * Invalidate any dictionary request
+     * that may still be running.
+     */
+    activeLookupRequest++;
 
     currentSelection = null;
     currentSentence = "";
+
+    currentPopupState = {
+        status: "loading",
+    };
 }
 
-function handleTriggerClick(): void {
+
+function renderDefinitionPopup():
+    void {
+
+    if (!currentSelection) {
+        return;
+    }
+
+    const position =
+        calculatePopupPosition(
+            currentSelection.rect
+        );
+
+    const root =
+        getOrCreateOverlayRoot();
+
+    root.render(
+        DefinitionPopup({
+            word:
+                currentSelection.word,
+
+
+            left:
+                position.left,
+
+            top:
+                position.top,
+
+            state:
+                currentPopupState,
+
+            onClose:
+                hideOverlay,
+
+            onRetry:
+                startDictionaryLookup,
+
+        })
+    );
+}
+
+async function startDictionaryLookup():
+    Promise<void> {
+
+    if (!currentSelection) {
+        return;
+    }
+
+    /*
+     * Every lookup receives its own
+     * request number.
+     *
+     * If another word is selected before
+     * this request finishes, its number
+     * will no longer match and the old
+     * response will be ignored.
+     */
+    const requestNumber =
+        ++activeLookupRequest;
+
+    const word =
+        currentSelection.word;
+
+    currentPopupState = {
+        status: "loading",
+    };
+
+    renderDefinitionPopup();
+
+    try {
+
+        const result =
+            await lookupWord(
+                word
+            );
+
+        /*
+         * Ignore stale results.
+         */
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        currentPopupState = {
+            status: "success",
+            result,
+        };
+
+        renderDefinitionPopup();
+
+    } catch (error) {
+
+        /*
+         * Ignore errors belonging
+         * to an old request.
+         */
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        let message =
+            "Definition temporarily unavailable. Please try again.";
+
+        if (
+            error instanceof
+            DictionaryLookupError
+        ) {
+
+            if (
+                error.kind ===
+                "not_found"
+            ) {
+                message =
+                    `No dictionary definition was found for "${word}".`;
+            } else {
+                message =
+                    error.message;
+            }
+        }
+
+        currentPopupState = {
+            status: "error",
+            message,
+        };
+
+        renderDefinitionPopup();
+    }
+}
+
+function handleTriggerClick():
+    void {
+
     if (!currentSelection) {
         return;
     }
 
     console.log(
-        "[CRA] Trigger clicked:",
+        "[CRA] Looking up:",
         {
             word:
                 currentSelection.word,
+
             sentence:
                 currentSentence,
         }
     );
+
+    void startDictionaryLookup();
 }
 
 function showTrigger(
     data: SelectionData
 ): void {
-    currentSelection = data;
+
+    /*
+     * If a lookup from an older selection
+     * is still running, invalidate it.
+     */
+    activeLookupRequest++;
+
+    currentSelection =
+        data;
 
     currentSentence =
         extractSentence(
             data.range
         );
+
+    currentPopupState = {
+        status: "loading",
+    };
 
     const position =
         calculateTriggerPosition(
@@ -158,27 +351,33 @@ function showTrigger(
     );
 
     const root =
-        getOrCreateTriggerRoot();
+        getOrCreateOverlayRoot();
 
     root.render(
         SelectionTrigger({
             left:
                 position.left,
+
             top:
                 position.top,
+
             onClick:
                 handleTriggerClick,
         })
     );
 }
 
-function handleSelection(): void {
+function handleSelection():
+    void {
+
     const data =
         getSelectionData();
 
     if (!data) {
         previousSelection = "";
-        hideTrigger();
+
+        hideOverlay();
+
         return;
     }
 
@@ -201,12 +400,15 @@ function handleSelection(): void {
     previousSelection =
         selectionKey;
 
-    showTrigger(data);
+    showTrigger(
+        data
+    );
 }
 
 document.addEventListener(
     "selectionchange",
     () => {
+
         window.clearTimeout(
             selectionTimer
         );
@@ -222,11 +424,14 @@ document.addEventListener(
 document.addEventListener(
     "keydown",
     (event) => {
+
         if (
-            event.key === "Escape"
+            event.key ===
+            "Escape"
         ) {
             previousSelection = "";
-            hideTrigger();
+
+            hideOverlay();
         }
     }
 );
@@ -234,27 +439,36 @@ document.addEventListener(
 document.addEventListener(
     "mousedown",
     (event) => {
+
         const target =
             event.target;
 
+        /*
+         * Clicking inside our Shadow DOM
+         * is retargeted to the overlay
+         * host. Treat that as an internal
+         * click and keep the UI open.
+         */
         if (
             target instanceof Node &&
-            triggerHost?.contains(
+            overlayHost?.contains(
                 target
             )
         ) {
             return;
         }
 
-        hideTrigger();
+        hideOverlay();
     }
 );
 
 window.addEventListener(
     "scroll",
     () => {
+
         previousSelection = "";
-        hideTrigger();
+
+        hideOverlay();
     },
     true
 );
@@ -262,7 +476,9 @@ window.addEventListener(
 window.addEventListener(
     "resize",
     () => {
+
         previousSelection = "";
-        hideTrigger();
+
+        hideOverlay();
     }
 );
