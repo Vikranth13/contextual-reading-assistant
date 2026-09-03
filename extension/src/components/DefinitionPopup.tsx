@@ -2,6 +2,10 @@ import type {
     DictionaryResult,
 } from "../types/dictionary";
 
+import type {
+    ContextualExplanationState,
+} from "../types/explanation";
+
 export type DefinitionPopupState =
     | {
         status: "loading";
@@ -19,6 +23,9 @@ interface DefinitionPopupProps {
     word: string;
     left: number;
     top: number;
+
+    explanationState:
+        ContextualExplanationState;
 
     state:
         DefinitionPopupState;
@@ -141,6 +148,7 @@ export function DefinitionPopup({
     left,
     top,
     state,
+    explanationState,
     onClose,
     onRetry,
 }: DefinitionPopupProps) {
@@ -332,16 +340,52 @@ export function DefinitionPopup({
                         Contextual meaning
                     </div>
 
-                    <div
-                        style={{
-                            color:
-                                "#6b7280",
-                        }}
-                    >
-                        AI explanation
-                        will appear here
-                        in the next build.
-                    </div>
+                    {explanationState.status ===
+                        "idle" && (
+                            <div
+                                style={{
+                                    color:
+                                        "#6b7280",
+                                }}
+                            >
+                                Waiting for context...
+                            </div>
+                        )}
+
+                    {explanationState.status ===
+                        "loading" && (
+                            <div
+                                style={{
+                                    color:
+                                        "#6b7280",
+                                }}
+                            >
+                                Explaining in context...
+                            </div>
+                        )}
+
+                    {explanationState.status ===
+                        "success" && (
+                            <div>
+                                {
+                                    explanationState.text
+                                }
+                            </div>
+                        )}
+
+                    {explanationState.status ===
+                        "error" && (
+                            <div
+                                style={{
+                                    color:
+                                        "#6b7280",
+                                }}
+                            >
+                                {
+                                    explanationState.message
+                                }
+                            </div>
+                        )}
                 </>
             )}
         </section>

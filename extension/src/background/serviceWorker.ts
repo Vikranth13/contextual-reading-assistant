@@ -1,3 +1,4 @@
+import "./contextualExplanationHandler";
 import type {
     DictionaryResult,
 } from "../types/dictionary";

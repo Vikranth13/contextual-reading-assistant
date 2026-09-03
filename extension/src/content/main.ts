@@ -34,6 +34,14 @@ import {
     type SelectionData,
 } from "./selection";
 
+import {
+    explainWordInContext,
+} from "../api/contextualExplanation";
+
+import type {
+    ContextualExplanationState,
+} from "../types/explanation";
+
 console.log(
     "[CRA] Content script loaded."
 );
@@ -54,6 +62,11 @@ let currentSentence = "";
 let currentPopupState:
     DefinitionPopupState = {
         status: "loading",
+    };
+
+let currentExplanationState:
+    ContextualExplanationState = {
+        status: "idle",
     };
 
 let overlayHost:
@@ -150,6 +163,10 @@ function hideOverlay(): void {
     currentPopupState = {
         status: "loading",
     };
+
+    currentExplanationState = {
+    status: "idle",
+    };
 }
 
 
@@ -182,6 +199,9 @@ function renderDefinitionPopup():
 
             state:
                 currentPopupState,
+
+            explanationState:
+                currentExplanationState,
 
             onClose:
                 hideOverlay,
@@ -244,6 +264,10 @@ async function startDictionaryLookup():
         };
 
         renderDefinitionPopup();
+
+        void startContextualExplanation(
+            requestNumber
+        );
 
     } catch (error) {
 
@@ -328,6 +352,10 @@ function showTrigger(
 
     currentPopupState = {
         status: "loading",
+    };
+
+    currentExplanationState = {
+    status: "idle",
     };
 
     const position =
@@ -482,3 +510,74 @@ window.addEventListener(
         hideOverlay();
     }
 );
+
+async function startContextualExplanation(
+    requestNumber: number
+): Promise<void> {
+
+    if (
+        !currentSelection ||
+        !currentSentence
+    ) {
+        return;
+    }
+
+    const word =
+        currentSelection.word;
+
+    const sentence =
+        currentSentence;
+
+    currentExplanationState = {
+        status: "loading",
+    };
+
+    renderDefinitionPopup();
+
+    try {
+        const result =
+            await explainWordInContext(
+                word,
+                sentence
+            );
+
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        currentExplanationState = {
+            status: "success",
+
+            text:
+                result.contextualMeaning,
+        };
+
+        renderDefinitionPopup();
+
+    } catch (error) {
+
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        console.error(
+            "[CRA] Context explanation failed:",
+            error
+        );
+
+        currentExplanationState = {
+            status: "error",
+
+            message:
+                "Context explanation unavailable.",
+        };
+
+        renderDefinitionPopup();
+    }
+}

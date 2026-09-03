@@ -13,6 +13,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+backend/.env
+venv/
+backend/venv/
 
 # OS
 .DS_Store

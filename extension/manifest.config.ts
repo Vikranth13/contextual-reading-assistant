@@ -16,6 +16,7 @@ export default defineManifest({
     host_permissions: [
         "https://api.dictionaryapi.dev/*",
         "https://api.datamuse.com/*",
+        "http://127.0.0.1:8000/*",
     ],
 
     background: {
