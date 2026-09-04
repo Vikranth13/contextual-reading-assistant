@@ -13,6 +13,13 @@ export default defineManifest({
     description:
         "Understand unfamiliar words without leaving what you are reading.",
 
+    permissions: [
+        "storage",
+    ],
+
+    options_page:
+        "saved.html",
+        
     host_permissions: [
         "https://api.dictionaryapi.dev/*",
         "https://api.datamuse.com/*",

@@ -42,6 +42,16 @@ import type {
     ContextualExplanationState,
 } from "../types/explanation";
 
+import {
+    checkSavedWord,
+    openSavedWordsPage,
+    toggleSavedWord,
+} from "../api/savedWords";
+
+import type {
+    SavedWordState,
+} from "../types/savedWord";
+
 console.log(
     "[CRA] Content script loaded."
 );
@@ -76,6 +86,11 @@ let overlayRoot:
     Root | null = null;
 
 let activeLookupRequest = 0;
+
+let currentSavedState:
+    SavedWordState = {
+        status: "idle",
+    };
 
 function getOrCreateOverlayRoot():
     Root {
@@ -167,6 +182,10 @@ function hideOverlay(): void {
     currentExplanationState = {
     status: "idle",
     };
+
+    currentSavedState = {
+        status: "idle",
+    };
 }
 
 
@@ -202,6 +221,15 @@ function renderDefinitionPopup():
 
             explanationState:
                 currentExplanationState,
+
+            savedState:
+                currentSavedState,
+
+            onToggleSave:
+                handleToggleSave,
+
+            onOpenSavedWords:
+                handleOpenSavedWords,
 
             onClose:
                 hideOverlay,
@@ -264,6 +292,10 @@ async function startDictionaryLookup():
         };
 
         renderDefinitionPopup();
+
+        void refreshSavedState(
+            requestNumber
+        );
 
         void startContextualExplanation(
             requestNumber
@@ -356,6 +388,10 @@ function showTrigger(
 
     currentExplanationState = {
     status: "idle",
+    };
+
+    currentSavedState = {
+        status: "idle",
     };
 
     const position =
@@ -580,4 +616,165 @@ async function startContextualExplanation(
 
         renderDefinitionPopup();
     }
+}
+
+async function refreshSavedState(
+    requestNumber: number
+): Promise<void> {
+
+    if (
+        !currentSelection ||
+        !currentSentence
+    ) {
+        return;
+    }
+
+    currentSavedState = {
+        status: "checking",
+    };
+
+    renderDefinitionPopup();
+
+    try {
+
+        const result =
+            await checkSavedWord(
+                currentSelection.word,
+                currentSentence
+            );
+
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        currentSavedState =
+            result.saved &&
+            result.item
+                ? {
+                    status:
+                        "saved",
+
+                    id:
+                        result.item.id,
+                }
+                : {
+                    status:
+                        "unsaved",
+                };
+
+    } catch {
+
+        currentSavedState = {
+            status: "error",
+
+            message:
+                "Unable to check saved state.",
+        };
+    }
+
+    renderDefinitionPopup();
+}
+
+async function handleToggleSave():
+Promise<void> {
+
+    if (
+        !currentSelection ||
+        currentPopupState.status !==
+            "success"
+    ) {
+        return;
+    }
+
+    if (
+        currentExplanationState.status ===
+            "loading" ||
+        currentExplanationState.status ===
+            "idle"
+    ) {
+        return;
+    }
+
+    const requestNumber =
+        activeLookupRequest;
+
+    const dictionaryResult =
+        currentPopupState.result;
+
+    currentSavedState = {
+        status: "checking",
+    };
+
+    renderDefinitionPopup();
+
+    try {
+
+        const result =
+            await toggleSavedWord({
+                word:
+                    currentSelection.word,
+
+                definition:
+                    dictionaryResult.definition,
+
+                partOfSpeech:
+                    dictionaryResult.partOfSpeech,
+
+                phonetic:
+                    dictionaryResult.phonetic,
+
+                sentence:
+                    currentSentence,
+
+                contextualMeaning:
+                    currentExplanationState
+                        .status ===
+                        "success"
+                        ? currentExplanationState
+                            .text
+                        : undefined,
+            });
+
+        if (
+            requestNumber !==
+            activeLookupRequest
+        ) {
+            return;
+        }
+
+        currentSavedState =
+            result.saved &&
+            result.item
+                ? {
+                    status:
+                        "saved",
+
+                    id:
+                        result.item.id,
+                }
+                : {
+                    status:
+                        "unsaved",
+                };
+
+    } catch {
+
+        currentSavedState = {
+            status: "error",
+
+            message:
+                "Unable to save word.",
+        };
+    }
+
+    renderDefinitionPopup();
+}
+
+function handleOpenSavedWords():
+void {
+
+    void openSavedWordsPage();
 }

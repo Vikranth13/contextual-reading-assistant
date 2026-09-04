@@ -1,4 +1,5 @@
 import "./contextualExplanationHandler";
+import "./savedWordsHandler";
 import type {
     DictionaryResult,
 } from "../types/dictionary";

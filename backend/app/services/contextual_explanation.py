@@ -13,6 +13,11 @@ from app.models import (
 )
 
 
+from app.services.explanation_cache import (
+    cache_explanation,
+    get_cached_explanation,
+)
+
 PROMPT = (
     ChatPromptTemplate.from_messages(
         [
@@ -98,6 +103,19 @@ async def explain_word_in_context(
     sentence: str,
 ) -> str:
 
+    settings = get_settings()
+
+    cached_explanation = (
+        await get_cached_explanation(
+            word=word,
+            sentence=sentence,
+            model=settings.gemini_model,
+        )
+    )
+
+    if cached_explanation:
+        return cached_explanation
+
     chain = get_explanation_chain()
 
     result = await chain.ainvoke(
@@ -121,5 +139,12 @@ async def explain_word_in_context(
             "Gemini returned an empty "
             "contextual explanation."
         )
+
+    await cache_explanation(
+        word=word,
+        sentence=sentence,
+        model=settings.gemini_model,
+        explanation=contextual_meaning,
+    )
 
     return contextual_meaning

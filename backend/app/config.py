@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -29,6 +29,16 @@ class Settings(BaseSettings):
         ),
         env_file_encoding="utf-8",
         extra="ignore",
+    )
+
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="REDIS_URL",
+    )
+
+    explanation_cache_ttl_seconds: int = Field(
+        default=86400,
+        validation_alias="EXPLANATION_CACHE_TTL_SECONDS",
     )
 
 

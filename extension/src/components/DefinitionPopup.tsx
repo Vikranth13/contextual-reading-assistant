@@ -6,6 +6,10 @@ import type {
     ContextualExplanationState,
 } from "../types/explanation";
 
+import type {
+    SavedWordState,
+} from "../types/savedWord";
+
 export type DefinitionPopupState =
     | {
         status: "loading";
@@ -29,6 +33,15 @@ interface DefinitionPopupProps {
 
     state:
         DefinitionPopupState;
+
+    savedState:
+        SavedWordState;
+
+    onToggleSave:
+        () => void;
+
+    onOpenSavedWords:
+        () => void;
 
     onClose:
         () => void;
@@ -149,9 +162,22 @@ export function DefinitionPopup({
     top,
     state,
     explanationState,
+    savedState,
+    onToggleSave,
+    onOpenSavedWords,
     onClose,
     onRetry,
 }: DefinitionPopupProps) {
+
+    const saveDisabled =
+        savedState.status ===
+            "checking"
+        ||
+        explanationState.status ===
+            "idle"
+        ||
+        explanationState.status ===
+            "loading";
 
     return (
         <section
@@ -386,6 +412,63 @@ export function DefinitionPopup({
                                 }
                             </div>
                         )}
+                    <div
+                        style={{
+                            display: "flex",
+                            gap: 6,
+                            marginTop: 9,
+                        }}
+                    >
+                        <button
+                            type="button"
+
+                            disabled={
+                                saveDisabled
+                            }
+
+                            onClick={
+                                onToggleSave
+                            }
+
+                            style={{
+                                ...buttonStyle,
+
+                                opacity:
+                                    saveDisabled
+                                        ? 0.55
+                                        : 1,
+
+                                cursor:
+                                    saveDisabled
+                                        ? "default"
+                                        : "pointer",
+                            }}
+                        >
+                            {
+                                savedState.status ===
+                                    "saved"
+                                    ? "Saved ✓"
+                                    : savedState.status ===
+                                        "checking"
+                                        ? "Checking..."
+                                        : "Save"
+                            }
+                        </button>
+
+                        <button
+                            type="button"
+
+                            onClick={
+                                onOpenSavedWords
+                            }
+
+                            style={
+                                buttonStyle
+                            }
+                        >
+                            Saved words
+                        </button>
+                    </div>
                 </>
             )}
         </section>
