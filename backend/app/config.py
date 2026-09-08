@@ -41,6 +41,20 @@ class Settings(BaseSettings):
         validation_alias="EXPLANATION_CACHE_TTL_SECONDS",
     )
 
+    rate_limit_requests: int = Field(
+        default=30,
+        validation_alias=(
+            "RATE_LIMIT_REQUESTS"
+        ),
+    )
+
+    rate_limit_window_seconds: int = Field(
+        default=60,
+        validation_alias=(
+            "RATE_LIMIT_WINDOW_SECONDS"
+        ),
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

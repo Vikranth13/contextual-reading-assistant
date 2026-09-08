@@ -3,6 +3,7 @@ import logging
 from fastapi import (
     FastAPI,
     HTTPException,
+    Request,
 )
 
 from app.models import (
@@ -12,6 +13,10 @@ from app.models import (
 
 from app.services.contextual_explanation import (
     explain_word_in_context,
+)
+
+from app.services.rate_limit import (
+    is_rate_limited,
 )
 
 
@@ -41,13 +46,38 @@ def health():
     response_model=ExplainResponse,
 )
 async def explain(
-    request: ExplainRequest,
+    request: Request,
+    payload: ExplainRequest
 ):
+
+    client_identifier = (
+        request.client.host
+        if request.client
+        else "unknown"
+    )
+
+    if await is_rate_limited(
+        client_identifier
+    ):
+        raise HTTPException(
+            status_code=429,
+
+            detail=(
+                "Too many explanation "
+                "requests. Please try "
+                "again shortly."
+            ),
+
+            headers={
+                "Retry-After": "60",
+            },
+        )
+
     try:
         contextual_meaning = (
             await explain_word_in_context(
-                word=request.word,
-                sentence=request.sentence,
+                word=payload.word,
+                sentence=payload.sentence,
             )
         )
 
@@ -76,7 +106,7 @@ async def explain(
         ) from error
 
     return ExplainResponse(
-        word=request.word,
+        word=payload.word,
         contextual_meaning=(
             contextual_meaning
         ),

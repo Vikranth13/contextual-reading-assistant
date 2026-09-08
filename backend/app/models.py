@@ -3,7 +3,52 @@ from pydantic import (
     Field,
     field_validator,
 )
+import unicodedata
 
+def is_letter_or_mark(
+    character: str,
+) -> bool:
+    category = unicodedata.category(
+        character
+    )
+
+    return (
+        category.startswith("L")
+        or
+        category.startswith("M")
+    )
+
+
+def is_valid_word(
+    value: str,
+) -> bool:
+    if not value:
+        return False
+
+    separators = {
+        "'",
+        "’",
+        "-",
+    }
+
+    for index, character in enumerate(
+        value
+    ):
+        if is_letter_or_mark(
+            character
+        ):
+            continue
+
+        if (
+            character in separators
+            and index > 0
+            and index < len(value) - 1
+        ):
+            continue
+
+        return False
+
+    return True
 
 class ExplainRequest(BaseModel):
     word: str = Field(
@@ -33,6 +78,24 @@ class ExplainRequest(BaseModel):
             )
 
         return cleaned
+
+    @field_validator(
+        "word",
+    )
+    @classmethod
+    def validate_word(
+        cls,
+        value: str,
+    ) -> str:
+        if not is_valid_word(
+            value
+        ):
+            raise ValueError(
+                "Word contains unsupported "
+                "characters."
+            )
+
+        return value
 
 
 class ExplainResponse(BaseModel):

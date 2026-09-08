@@ -14,6 +14,25 @@ interface BackendExplainResponse {
     contextual_meaning: string;
 }
 
+interface BackendErrorResponse {
+    detail?: string;
+}
+
+
+class ExplanationRequestError
+    extends Error {
+
+    constructor(
+        message: string
+    ) {
+        super(
+            message
+        );
+
+        this.name =
+            "ExplanationRequestError";
+    }
+}
 
 const EXPLANATION_URL =
     "http://127.0.0.1:8000/api/explain";
@@ -89,8 +108,53 @@ async function requestExplanation(
             );
 
         if (!response.ok) {
-            throw new Error(
-                `Backend returned ${response.status}.`
+            let errorBody:
+                BackendErrorResponse = {};
+
+            try {
+                errorBody =
+                    await response.json() as
+                        BackendErrorResponse;
+            } catch {
+                // Response body is optional.
+            }
+
+            if (
+                response.status ===
+                429
+            ) {
+                throw new ExplanationRequestError(
+                    "Too many explanation requests. "
+                    + "Please try again shortly."
+                );
+            }
+
+            if (
+                response.status ===
+                422
+            ) {
+                throw new ExplanationRequestError(
+                    "The selected text could not "
+                    + "be processed."
+                );
+            }
+
+            if (
+                response.status ===
+                502 ||
+                response.status ===
+                503
+            ) {
+                throw new ExplanationRequestError(
+                    "AI explanation is temporarily "
+                    + "unavailable."
+                );
+            }
+
+            throw new ExplanationRequestError(
+                errorBody.detail
+                ||
+                "Context explanation is unavailable."
             );
         }
 
@@ -158,11 +222,32 @@ chrome.runtime.onMessage.addListener(
                         error
                     );
 
+                    let message =
+                        "Context explanation is "
+                        + "temporarily unavailable.";
+
+                    if (
+                        error instanceof
+                            ExplanationRequestError
+                    ) {
+                        message =
+                            error.message;
+                    }
+
+                    if (
+                        error instanceof
+                            DOMException &&
+                        error.name ===
+                            "AbortError"
+                    ) {
+                        message =
+                            "Context explanation took "
+                            + "too long. Please try again.";
+                    }
+
                     sendResponse({
                         ok: false,
-
-                        message:
-                            "Context explanation is temporarily unavailable.",
+                        message,
                     });
                 }
             );
