@@ -12,6 +12,15 @@ import type {
     SavedWord,
 } from "../types/savedWord";
 
+import {
+    getSettings,
+    updateSettings,
+} from "../storage/settings";
+
+import {
+    DEFAULT_SETTINGS,
+    type UserSettings,
+} from "../types/settings";
 
 export function SavedWordsPage() {
 
@@ -35,7 +44,13 @@ export function SavedWordsPage() {
     ] =
         useState("");
 
-
+    const [
+        settings,
+        setSettings,
+    ] =
+        useState<UserSettings>(
+            DEFAULT_SETTINGS
+        );
     
 
 
@@ -117,6 +132,36 @@ export function SavedWordsPage() {
         []
     );
 
+    useEffect(
+        () => {
+            let cancelled = false;
+
+            getSettings()
+                .then(
+                    (loadedSettings) => {
+
+                        if (cancelled) {
+                            return;
+                        }
+
+                        setSettings(
+                            loadedSettings
+                        );
+                    }
+                )
+                .catch(
+                    () => {
+                        // Defaults remain active.
+                    }
+                );
+
+            return () => {
+                cancelled = true;
+            };
+        },
+        []
+    );
+
 
     return (
         <main
@@ -147,6 +192,83 @@ export function SavedWordsPage() {
                 Vocabulary saved while
                 reading.
             </p>
+
+            <section
+                style={{
+                    marginTop: 24,
+                    marginBottom: 28,
+                    padding: 16,
+
+                    border:
+                        "1px solid #e5e7eb",
+
+                    borderRadius: 10,
+
+                    background:
+                        "#f9fafb",
+                }}
+            >
+                <h2
+                    style={{
+                        marginTop: 0,
+                        fontSize: 18,
+                    }}
+                >
+                    Settings
+                </h2>
+
+                <label
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 12,
+                    }}
+                >
+                    <input
+                        type="checkbox"
+
+                        checked={
+                            settings
+                                .enableContextualExplanations
+                        }
+
+                        onChange={
+                            (event) =>
+                                void handleAiSettingChange(
+                                    event.target.checked
+                                )
+                        }
+                    />
+
+                    Enable contextual AI explanations
+                </label>
+
+                <label
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                    }}
+                >
+                    <input
+                        type="checkbox"
+
+                        checked={
+                            settings.showPhonetic
+                        }
+
+                        onChange={
+                            (event) =>
+                                void handlePhoneticSettingChange(
+                                    event.target.checked
+                                )
+                        }
+                    />
+
+                    Show phonetic pronunciation
+                </label>
+            </section>
 
             {loading && (
                 <p>
@@ -299,4 +421,35 @@ export function SavedWordsPage() {
             </div>
         </main>
     );
+
+    async function handleAiSettingChange(
+        enabled: boolean
+    ) {
+
+        const updated =
+            await updateSettings({
+                enableContextualExplanations:
+                    enabled,
+            });
+
+        setSettings(
+            updated
+        );
+    }
+
+
+    async function handlePhoneticSettingChange(
+        enabled: boolean
+    ) {
+
+        const updated =
+            await updateSettings({
+                showPhonetic:
+                    enabled,
+            });
+
+        setSettings(
+            updated
+        );
+    }
 }

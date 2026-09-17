@@ -52,6 +52,15 @@ import type {
     SavedWordState,
 } from "../types/savedWord";
 
+import {
+    getSettings,
+} from "../storage/settings";
+
+import {
+    DEFAULT_SETTINGS,
+    type UserSettings,
+} from "../types/settings";
+
 console.log(
     "[CRA] Content script loaded."
 );
@@ -90,6 +99,11 @@ let activeLookupRequest = 0;
 let currentSavedState:
     SavedWordState = {
         status: "idle",
+    };
+
+let currentSettings:
+    UserSettings = {
+        ...DEFAULT_SETTINGS,
     };
 
 function getOrCreateOverlayRoot():
@@ -225,6 +239,10 @@ function renderDefinitionPopup():
             savedState:
                 currentSavedState,
 
+            showPhonetic:
+                currentSettings
+                    .showPhonetic,
+
             onToggleSave:
                 handleToggleSave,
 
@@ -297,9 +315,22 @@ async function startDictionaryLookup():
             requestNumber
         );
 
-        void startContextualExplanation(
-            requestNumber
-        );
+        if (
+            currentSettings
+                .enableContextualExplanations
+        ) {
+            void startContextualExplanation(
+                requestNumber
+            );
+
+        } else {
+
+            currentExplanationState = {
+                status: "idle",
+            };
+
+            renderDefinitionPopup();
+        }
 
     } catch (error) {
 
@@ -547,6 +578,26 @@ window.addEventListener(
     }
 );
 
+async function loadUserSettings():
+Promise<void> {
+
+    try {
+        currentSettings =
+            await getSettings();
+
+    } catch (error) {
+
+        console.error(
+            "[CRA] Unable to load settings:",
+            error
+        );
+
+        currentSettings = {
+            ...DEFAULT_SETTINGS,
+        };
+    }
+}
+
 async function startContextualExplanation(
     requestNumber: number
 ): Promise<void> {
@@ -778,3 +829,22 @@ void {
 
     void openSavedWordsPage();
 }
+
+void loadUserSettings();
+
+chrome.storage.onChanged.addListener(
+    (
+        changes,
+        areaName
+    ) => {
+
+        if (
+            areaName === "local" &&
+            changes[
+                "cra_settings_v1"
+            ]
+        ) {
+            void loadUserSettings();
+        }
+    }
+);

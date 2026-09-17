@@ -37,6 +37,9 @@ interface DefinitionPopupProps {
     savedState:
         SavedWordState;
 
+    showPhonetic?:
+        boolean;
+
     onToggleSave:
         () => void;
 
@@ -88,6 +91,15 @@ const popupStyle:
 
         zIndex:
             2147483647,
+        
+        overscrollBehavior:
+            "contain",
+
+        scrollbarGutter:
+            "stable",
+        
+        wordBreak:
+            "break-word",   
     };
 
 const headingStyle:
@@ -163,6 +175,7 @@ export function DefinitionPopup({
     state,
     explanationState,
     savedState,
+    showPhonetic,
     onToggleSave,
     onOpenSavedWords,
     onClose,
@@ -239,6 +252,7 @@ export function DefinitionPopup({
 
                     {state.status ===
                         "success" &&
+                        showPhonetic &&
                         state.result
                             .phonetic && (
                             <div
@@ -366,52 +380,59 @@ export function DefinitionPopup({
                         Contextual meaning
                     </div>
 
-                    {explanationState.status ===
-                        "idle" && (
-                            <div
-                                style={{
-                                    color:
-                                        "#6b7280",
-                                }}
-                            >
-                                Waiting for context...
-                            </div>
-                        )}
+                    <div
+                        aria-live="polite"
+                        aria-atomic="true"
+                    >
+                        {explanationState.status ===
+                            "idle" && (
+                                <div
+                                    style={{
+                                        color:
+                                            "#6b7280",
+                                    }}
+                                >
+                                    Contextual AI explanation
+                                    is disabled in settings.
+                                </div>
+                            )}
 
-                    {explanationState.status ===
-                        "loading" && (
-                            <div
-                                style={{
-                                    color:
-                                        "#6b7280",
-                                }}
-                            >
-                                Explaining in context...
-                            </div>
-                        )}
+                        {explanationState.status ===
+                            "loading" && (
+                                <div
+                                    style={{
+                                        color:
+                                            "#6b7280",
+                                    }}
+                                >
+                                    Explaining in context...
+                                </div>
+                            )}
 
-                    {explanationState.status ===
-                        "success" && (
-                            <div>
-                                {
-                                    explanationState.text
-                                }
-                            </div>
-                        )}
+                        {explanationState.status ===
+                            "success" && (
+                                <div>
+                                    {
+                                        explanationState.text
+                                    }
+                                </div>
+                            )}
 
-                    {explanationState.status ===
-                        "error" && (
-                            <div
-                                style={{
-                                    color:
-                                        "#6b7280",
-                                }}
-                            >
-                                {
-                                    explanationState.message
-                                }
-                            </div>
-                        )}
+                        {explanationState.status ===
+                            "error" && (
+                                <div
+                                    style={{
+                                        color:
+                                            "#6b7280",
+                                    }}
+                                >
+                                    {
+                                        explanationState.message
+                                    }
+                                </div>
+                            )}
+                    </div>
+
                     <div
                         style={{
                             display: "flex",
@@ -421,6 +442,11 @@ export function DefinitionPopup({
                     >
                         <button
                             type="button"
+
+                            aria-pressed={
+                                savedState.status ===
+                                    "saved"
+                            }
 
                             disabled={
                                 saveDisabled
